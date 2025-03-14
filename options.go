@@ -6,21 +6,35 @@ import (
 )
 
 type options struct {
-	etcdTimeout  time.Duration
-	etcdLeaseTTL int
-	locksPrefix  string
-	configPrefix string
-	endpoints    []string
-	username     string
-	password     string
+	serviceName   string
+	etcdTimeout   time.Duration
+	etcdLeaseTTL  int
+	locksPrefix   string
+	configPrefix  string
+	hostsPrefix   string
+	mutexesPrefix string
+	idsPrefix     string
+	endpoints     []string
+	username      string
+	password      string
 }
 
 func NewOptions() *options {
 	return &options{
-		etcdTimeout:  5 * time.Second,
-		etcdLeaseTTL: 60,
-		locksPrefix:  "/locks/",
-		configPrefix: "/configs/",
+		etcdTimeout:   5 * time.Second,
+		etcdLeaseTTL:  30,
+		locksPrefix:   "/locks/",
+		configPrefix:  "/configs/",
+		hostsPrefix:   "/hosts/",
+		mutexesPrefix: "/mutexes/",
+		idsPrefix:     "/ids/",
+	}
+}
+
+func Service(s string) func(*options) *options {
+	return func(l *options) *options {
+		l.serviceName = s
+		return l
 	}
 }
 
@@ -47,6 +61,27 @@ func LocksPrefix(p string) func(*options) *options {
 func ConfigPrefix(p string) func(*options) *options {
 	return func(l *options) *options {
 		l.configPrefix = p
+		return l
+	}
+}
+
+func HostsPrefix(p string) func(*options) *options {
+	return func(l *options) *options {
+		l.hostsPrefix = p
+		return l
+	}
+}
+
+func MutexesPrefix(p string) func(*options) *options {
+	return func(l *options) *options {
+		l.mutexesPrefix = p
+		return l
+	}
+}
+
+func IDsPrefix(p string) func(*options) *options {
+	return func(l *options) *options {
+		l.idsPrefix = p
 		return l
 	}
 }
