@@ -6,28 +6,30 @@ import (
 )
 
 type options struct {
-	serviceName   string
-	etcdTimeout   time.Duration
-	etcdLeaseTTL  int
-	locksPrefix   string
-	configPrefix  string
-	hostsPrefix   string
-	mutexesPrefix string
-	idsPrefix     string
-	endpoints     []string
-	username      string
-	password      string
+	serviceName     string
+	etcdDialTimeout time.Duration
+	etcdLeaseTTL    int
+	locksPrefix     string
+	configPrefix    string
+	hostsPrefix     string
+	mutexesPrefix   string
+	idsPrefix       string
+	endpoints       []string
+	username        string
+	password        string
+	retryInterval   time.Duration
 }
 
 func NewOptions() *options {
 	return &options{
-		etcdTimeout:   5 * time.Second,
-		etcdLeaseTTL:  30,
-		locksPrefix:   "/locks/",
-		configPrefix:  "/configs/",
-		hostsPrefix:   "/hosts/",
-		mutexesPrefix: "/mutexes/",
-		idsPrefix:     "/ids/",
+		etcdDialTimeout: 5 * time.Second,
+		etcdLeaseTTL:    30,
+		locksPrefix:     "/locks/",
+		configPrefix:    "/configs/",
+		hostsPrefix:     "/hosts/",
+		mutexesPrefix:   "/mutexes/",
+		idsPrefix:       "/ids/",
+		retryInterval:   30 * time.Second,
 	}
 }
 
@@ -38,9 +40,9 @@ func Service(s string) func(*options) *options {
 	}
 }
 
-func Timeout(t time.Duration) func(*options) *options {
+func DialTimeout(t time.Duration) func(*options) *options {
 	return func(l *options) *options {
-		l.etcdTimeout = t
+		l.etcdDialTimeout = t
 		return l
 	}
 }
@@ -103,6 +105,13 @@ func Username(u string) func(*options) *options {
 func Password(p string) func(*options) *options {
 	return func(l *options) *options {
 		l.password = p
+		return l
+	}
+}
+
+func RetryInterval(t time.Duration) func(*options) *options {
+	return func(l *options) *options {
+		l.retryInterval = t
 		return l
 	}
 }

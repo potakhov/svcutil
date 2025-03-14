@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	concurrency "go.etcd.io/etcd/client/v3/concurrency"
@@ -73,7 +74,7 @@ func NewEtcdClient(opt ...func(*options) *options) (*EtcdClient, error) {
 	var err error
 	cli.etcd, err = clientv3.New(clientv3.Config{
 		Endpoints:   o.endpoints,
-		DialTimeout: o.etcdTimeout,
+		DialTimeout: o.etcdDialTimeout,
 		Username:    o.username,
 		Password:    o.password,
 		Logger:      zap.NewNop(),
@@ -94,7 +95,7 @@ func NewEtcdClient(opt ...func(*options) *options) (*EtcdClient, error) {
 func (c *EtcdClient) Close() {
 	if c.idCloser != nil {
 		c.idCloser()
-		ctx, cancel := context.WithTimeout(context.Background(), c.options.etcdTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		c.etcd.Revoke(ctx, c.idLease)
 	}
@@ -103,7 +104,7 @@ func (c *EtcdClient) Close() {
 	c.etcd.Close()
 }
 
-func (c *EtcdClient) AcquireLock(name string) error {
+func (c *EtcdClient) AcquireLock(ctx context.Context, name string) error {
 	key := fmt.Sprintf("%s%s%s/%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
 
 	c.lock.Lock()
@@ -115,9 +116,6 @@ func (c *EtcdClient) AcquireLock(name string) error {
 	c.lock.Unlock()
 
 	mutex := concurrency.NewMutex(c.session, key)
-	ctx, cancel := context.WithTimeout(context.Background(), c.options.etcdTimeout)
-	defer cancel()
-
 	err := mutex.TryLock(ctx)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -138,7 +136,7 @@ func (c *EtcdClient) AcquireLock(name string) error {
 	return nil
 }
 
-func (c *EtcdClient) ReleaseLock(name string) error {
+func (c *EtcdClient) ReleaseLock(ctx context.Context, name string) error {
 	key := fmt.Sprintf("%s%s%s/%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
 
 	c.lock.Lock()
@@ -149,8 +147,6 @@ func (c *EtcdClient) ReleaseLock(name string) error {
 	}
 	c.lock.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), c.options.etcdTimeout)
-	defer cancel()
 	err := mutex.Unlock(ctx)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -167,7 +163,7 @@ func (c *EtcdClient) ReleaseLock(name string) error {
 	return nil
 }
 
-func (c *EtcdClient) LoadConfig(cfg any) error {
+func (c *EtcdClient) LoadConfig(ctx context.Context, cfg any) error {
 	v := reflect.ValueOf(cfg)
 	if v.Kind() != reflect.Ptr {
 		return ErrInvalidConfigPointer
@@ -183,9 +179,6 @@ func (c *EtcdClient) LoadConfig(cfg any) error {
 	}
 
 	cfgValue := v.Elem()
-
-	ctx, cancel := context.WithTimeout(context.Background(), c.options.etcdTimeout)
-	defer cancel()
 
 	for fieldName, jsonTag := range tags {
 		key := fmt.Sprintf("%s%s/%s", c.options.configPrefix, c.options.serviceName, jsonTag)
@@ -221,11 +214,8 @@ func (c *EtcdClient) LoadConfig(cfg any) error {
 	return nil
 }
 
-func (c *EtcdClient) GetHostValue(key string) (string, error) {
+func (c *EtcdClient) GetHostValue(ctx context.Context, key string) (string, error) {
 	idsKey := fmt.Sprintf("%s%s/%s/%s", c.options.hostsPrefix, c.options.serviceName, Hostname(), key)
-
-	ctx, cancel := context.WithTimeout(context.Background(), c.options.etcdTimeout)
-	defer cancel()
 
 	respKV, err := c.etcd.Get(ctx, idsKey)
 	if err != nil {
@@ -239,7 +229,7 @@ func (c *EtcdClient) GetHostValue(key string) (string, error) {
 	return string(respKV.Kvs[0].Value), nil
 }
 
-func (c *EtcdClient) LeaseServiceID(r Range) (ServiceID, error) {
+func (c *EtcdClient) LeaseServiceID(ctx context.Context, r Range) (ServiceID, error) {
 	if r.Type != RangeTypeID {
 		return ServiceID{}, ErrInvalidRange
 	}
@@ -249,9 +239,7 @@ func (c *EtcdClient) LeaseServiceID(r Range) (ServiceID, error) {
 	}
 
 	lease := clientv3.NewLease(c.etcd)
-	ctx, cancel := context.WithTimeout(context.Background(), c.options.etcdTimeout)
 	resp, err := lease.Grant(ctx, int64(c.options.etcdLeaseTTL))
-	cancel()
 	if err != nil {
 		return ServiceID{}, err
 	}
@@ -265,21 +253,19 @@ func (c *EtcdClient) LeaseServiceID(r Range) (ServiceID, error) {
 	for _, id := range ids {
 		idLockKey := key + id
 
-		ctx, cancel = context.WithTimeout(context.Background(), c.options.etcdTimeout)
 		txn := c.etcd.Txn(ctx).
 			If(clientv3.Compare(clientv3.CreateRevision(idLockKey), "=", 0)).
 			Then(clientv3.OpPut(idLockKey, "locked", clientv3.WithLease(resp.ID))).
 			Else()
 
 		txnResp, err := txn.Commit()
-		cancel()
 		if err != nil {
 			return ServiceID{}, err
 		}
 
 		if txnResp.Succeeded {
-			ctx, cancel := context.WithCancel(context.Background())
-			keepAlive, err := c.etcd.KeepAlive(ctx, resp.ID)
+			keepAliveContext, cancel := context.WithCancel(context.Background())
+			keepAlive, err := c.etcd.KeepAlive(keepAliveContext, resp.ID)
 			if err != nil || keepAlive == nil {
 				cancel()
 				return ServiceID{}, err
@@ -300,4 +286,31 @@ func (c *EtcdClient) LeaseServiceID(r Range) (ServiceID, error) {
 	}
 
 	return ServiceID{}, ErrNoAvailableIDs
+}
+
+func (c *EtcdClient) WaitForServiceID(ctx context.Context, r Range) (ServiceID, error) {
+	if r.Type != RangeTypeID {
+		return ServiceID{}, ErrInvalidRange
+	}
+
+	for {
+		id, err := c.LeaseServiceID(ctx, r)
+		if err == nil {
+			return id, nil
+		}
+
+		wctx, cancel := context.WithCancel(ctx)
+		key := fmt.Sprintf("%s%s%s/", c.options.locksPrefix, c.options.serviceName, c.options.idsPrefix)
+		watchChan := c.etcd.Watch(wctx, key, clientv3.WithPrefix())
+
+		select {
+		case <-watchChan:
+		case <-time.After(c.options.retryInterval):
+		case <-ctx.Done():
+			cancel()
+			return ServiceID{}, ctx.Err()
+		}
+
+		cancel()
+	}
 }
