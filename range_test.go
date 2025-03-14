@@ -10,6 +10,7 @@ func TestNewIDRange(t *testing.T) {
 		name     string
 		input    string
 		expected *Range
+		wantErr  bool
 	}{
 		{
 			name:  "hyphen range",
@@ -18,6 +19,7 @@ func TestNewIDRange(t *testing.T) {
 				Type:   RangeTypeID,
 				Values: []string{"1", "2", "3", "4", "5"},
 			},
+			wantErr: false,
 		},
 		{
 			name:  "comma separated values",
@@ -26,6 +28,7 @@ func TestNewIDRange(t *testing.T) {
 				Type:   RangeTypeID,
 				Values: []string{"1", "3", "5", "7"},
 			},
+			wantErr: false,
 		},
 		{
 			name:  "single value",
@@ -34,26 +37,31 @@ func TestNewIDRange(t *testing.T) {
 				Type:   RangeTypeID,
 				Values: []string{"42"},
 			},
+			wantErr: false,
 		},
 		{
 			name:     "empty input",
 			input:    "",
 			expected: nil,
+			wantErr:  true,
 		},
 		{
 			name:     "invalid range format",
 			input:    "1-a",
 			expected: nil,
+			wantErr:  true,
 		},
 		{
 			name:     "invalid value",
 			input:    "a,b,c",
 			expected: nil,
+			wantErr:  true,
 		},
 		{
 			name:     "invalid range order",
 			input:    "5-1",
 			expected: nil,
+			wantErr:  true,
 		},
 		{
 			name:  "with whitespace",
@@ -62,13 +70,18 @@ func TestNewIDRange(t *testing.T) {
 				Type:   RangeTypeID,
 				Values: []string{"1", "3", "5"},
 			},
+			wantErr: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := NewIDRange(tt.input)
-			if !reflect.DeepEqual(result, tt.expected) {
+			result, err := NewIDRange(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewIDRange(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("NewIDRange(%q) = %+v, want %+v", tt.input, result, tt.expected)
 			}
 		})
@@ -157,6 +170,7 @@ func TestNewIPRange(t *testing.T) {
 		name     string
 		input    string
 		expected *Range
+		wantErr  bool
 	}{
 		{
 			name:  "IP range",
@@ -168,6 +182,7 @@ func TestNewIPRange(t *testing.T) {
 					"192.168.1.4", "192.168.1.5",
 				},
 			},
+			wantErr: false,
 		},
 		{
 			name:  "comma separated IPs",
@@ -176,6 +191,7 @@ func TestNewIPRange(t *testing.T) {
 				Type:   RangeTypeIP,
 				Values: []string{"192.168.1.1", "192.168.1.100"},
 			},
+			wantErr: false,
 		},
 		{
 			name:  "comma separated IPv6 range",
@@ -184,28 +200,36 @@ func TestNewIPRange(t *testing.T) {
 				Type:   RangeTypeIP,
 				Values: []string{"2001:db8::1", "2001:db8::10"},
 			},
+			wantErr: false,
 		},
 		{
 			name:     "IPv6 range",
 			input:    "2001:db8::1-2001:db8::10",
 			expected: nil,
+			wantErr:  true,
 		},
 		{
 			name:     "invalid IP",
 			input:    "192.168.1.256",
 			expected: nil,
+			wantErr:  true,
 		},
 		{
 			name:     "reversed range",
 			input:    "192.168.1.10-192.168.1.1",
 			expected: nil,
+			wantErr:  true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := NewIPRange(tt.input)
-			if !reflect.DeepEqual(result, tt.expected) {
+			result, err := NewIPRange(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("NewIPRange(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && !reflect.DeepEqual(result, tt.expected) {
 				t.Errorf("NewIPRange(%q) = %+v, want %+v", tt.input, result, tt.expected)
 			}
 		})

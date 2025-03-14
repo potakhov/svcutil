@@ -5,6 +5,25 @@ import (
 	"time"
 )
 
+type EventType int
+
+const (
+	EventTypeUnknown EventType = iota
+	EventTypeKeepAliveRenewed
+	EventTypeKeepAliveStopped
+	EventTypeUnableToCheckTTL
+	EventTypeLeaseExpired
+	EventTypeKeepAliveRestarted
+	EventTypeUnableToRestartKeepAlive
+	EventTypeUnableToReacquireLease
+	EventTypeLeaseReacquired
+	EventTypeLeaseIsTaken
+)
+
+type Events interface {
+	OnEvent(EventType, string, error)
+}
+
 type options struct {
 	serviceName     string
 	etcdDialTimeout time.Duration
@@ -18,6 +37,13 @@ type options struct {
 	username        string
 	password        string
 	retryInterval   time.Duration
+	events          Events
+}
+
+type noOpEvents struct{}
+
+func (e *noOpEvents) OnEvent(_ EventType, _ string, _ error) {
+	// No-op
 }
 
 func NewOptions() *options {
@@ -30,6 +56,7 @@ func NewOptions() *options {
 		mutexesPrefix:   "/mutexes/",
 		idsPrefix:       "/ids/",
 		retryInterval:   30 * time.Second,
+		events:          &noOpEvents{},
 	}
 }
 
@@ -112,6 +139,13 @@ func Password(p string) func(*options) *options {
 func RetryInterval(t time.Duration) func(*options) *options {
 	return func(l *options) *options {
 		l.retryInterval = t
+		return l
+	}
+}
+
+func OnEvents(e Events) func(*options) *options {
+	return func(l *options) *options {
+		l.events = e
 		return l
 	}
 }

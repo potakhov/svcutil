@@ -23,10 +23,10 @@ type Range struct {
 	Values []string
 }
 
-func NewIDRange(value string) *Range {
+func NewIDRange(value string) (*Range, error) {
 	ids, err := ParseIDRange(value)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	strIDs := make([]string, len(ids))
@@ -37,7 +37,7 @@ func NewIDRange(value string) *Range {
 	return &Range{
 		Type:   RangeTypeID,
 		Values: strIDs,
-	}
+	}, nil
 }
 
 func ParseIDRange(input string) ([]int, error) {
@@ -95,16 +95,16 @@ func ParseIDRange(input string) ([]int, error) {
 	return result, nil
 }
 
-func NewIPRange(value string) *Range {
+func NewIPRange(value string) (*Range, error) {
 	ips, err := ParseIPRange(value)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	return &Range{
 		Type:   RangeTypeIP,
 		Values: ips,
-	}
+	}, nil
 }
 
 func ParseIPRange(input string) ([]string, error) {

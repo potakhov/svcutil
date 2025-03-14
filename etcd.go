@@ -4,13 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"math/rand/v2"
 	"os"
 	"reflect"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	concurrency "go.etcd.io/etcd/client/v3/concurrency"
@@ -25,10 +23,6 @@ type EtcdClient struct {
 
 	mutexes map[string]*concurrency.Mutex
 	lock    sync.Mutex
-
-	idCloser func()
-	idLease  clientv3.LeaseID
-	id       ServiceID
 }
 
 var ErrServiceNameNotSpecified = errors.New("service name is not specified")
@@ -93,19 +87,12 @@ func NewEtcdClient(opt ...func(*options) *options) (*EtcdClient, error) {
 }
 
 func (c *EtcdClient) Close() {
-	if c.idCloser != nil {
-		c.idCloser()
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		c.etcd.Revoke(ctx, c.idLease)
-	}
-
 	c.session.Close()
 	c.etcd.Close()
 }
 
 func (c *EtcdClient) AcquireLock(ctx context.Context, name string) error {
-	key := fmt.Sprintf("%s%s%s/%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
+	key := fmt.Sprintf("%s%s%s%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
 
 	c.lock.Lock()
 	_, ok := c.mutexes[key]
@@ -137,7 +124,7 @@ func (c *EtcdClient) AcquireLock(ctx context.Context, name string) error {
 }
 
 func (c *EtcdClient) ReleaseLock(ctx context.Context, name string) error {
-	key := fmt.Sprintf("%s%s%s/%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
+	key := fmt.Sprintf("%s%s%s%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
 
 	c.lock.Lock()
 	mutex, ok := c.mutexes[key]
@@ -227,90 +214,4 @@ func (c *EtcdClient) GetHostValue(ctx context.Context, key string) (string, erro
 	}
 
 	return string(respKV.Kvs[0].Value), nil
-}
-
-func (c *EtcdClient) LeaseServiceID(ctx context.Context, r Range) (ServiceID, error) {
-	if r.Type != RangeTypeID {
-		return ServiceID{}, ErrInvalidRange
-	}
-
-	if c.idCloser != nil {
-		return c.id, nil
-	}
-
-	lease := clientv3.NewLease(c.etcd)
-	resp, err := lease.Grant(ctx, int64(c.options.etcdLeaseTTL))
-	if err != nil {
-		return ServiceID{}, err
-	}
-
-	key := fmt.Sprintf("%s%s%s/", c.options.locksPrefix, c.options.serviceName, c.options.idsPrefix)
-
-	ids := make([]string, len(r.Values))
-	copy(ids, r.Values)
-	rand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
-
-	for _, id := range ids {
-		idLockKey := key + id
-
-		txn := c.etcd.Txn(ctx).
-			If(clientv3.Compare(clientv3.CreateRevision(idLockKey), "=", 0)).
-			Then(clientv3.OpPut(idLockKey, "locked", clientv3.WithLease(resp.ID))).
-			Else()
-
-		txnResp, err := txn.Commit()
-		if err != nil {
-			return ServiceID{}, err
-		}
-
-		if txnResp.Succeeded {
-			keepAliveContext, cancel := context.WithCancel(context.Background())
-			keepAlive, err := c.etcd.KeepAlive(keepAliveContext, resp.ID)
-			if err != nil || keepAlive == nil {
-				cancel()
-				return ServiceID{}, err
-			}
-
-			go func() {
-				for range keepAlive {
-				}
-			}()
-
-			idInt, _ := strconv.Atoi(id)
-			c.id = NewServiceID(c.options.serviceName, idInt)
-			c.idCloser = cancel
-			c.idLease = resp.ID
-
-			return c.id, nil
-		}
-	}
-
-	return ServiceID{}, ErrNoAvailableIDs
-}
-
-func (c *EtcdClient) WaitForServiceID(ctx context.Context, r Range) (ServiceID, error) {
-	if r.Type != RangeTypeID {
-		return ServiceID{}, ErrInvalidRange
-	}
-
-	for {
-		id, err := c.LeaseServiceID(ctx, r)
-		if err == nil {
-			return id, nil
-		}
-
-		wctx, cancel := context.WithCancel(ctx)
-		key := fmt.Sprintf("%s%s%s/", c.options.locksPrefix, c.options.serviceName, c.options.idsPrefix)
-		watchChan := c.etcd.Watch(wctx, key, clientv3.WithPrefix())
-
-		select {
-		case <-watchChan:
-		case <-time.After(c.options.retryInterval):
-		case <-ctx.Done():
-			cancel()
-			return ServiceID{}, ctx.Err()
-		}
-
-		cancel()
-	}
 }
