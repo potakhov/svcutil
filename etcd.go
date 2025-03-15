@@ -206,6 +206,16 @@ func (c *Service) LoadConfig(ctx context.Context, cfg any) error {
 	return c.loadConfig(ctx, cfg, path)
 }
 
+func (c *Service) LoadScopeConfig(ctx context.Context, cfg any) error {
+	var path string
+	if c.options.serviceScope != "" {
+		path = c.options.configPrefix + c.options.serviceScope + "/"
+	} else {
+		path = c.options.configPrefix + c.options.serviceName + "/"
+	}
+	return c.loadConfig(ctx, cfg, path)
+}
+
 func (c *Service) LoadHostConfig(ctx context.Context, cfg any) error {
 	path := c.options.hostsPrefix + c.options.serviceName + "/" + Hostname() + "/"
 	return c.loadConfig(ctx, cfg, path)

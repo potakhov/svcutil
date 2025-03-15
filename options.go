@@ -20,6 +20,7 @@ type Events interface {
 
 type options struct {
 	serviceName     string
+	serviceScope    string
 	etcdDialTimeout time.Duration
 	etcdLeaseTTL    int
 	locksPrefix     string
@@ -57,6 +58,13 @@ func NewOptions() *options {
 func Name(s string) func(*options) *options {
 	return func(l *options) *options {
 		l.serviceName = s
+		return l
+	}
+}
+
+func Scope(s string) func(*options) *options {
+	return func(l *options) *options {
+		l.serviceScope = s
 		return l
 	}
 }
