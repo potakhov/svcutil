@@ -215,3 +215,24 @@ func (c *EtcdClient) GetHostValue(ctx context.Context, key string) (string, erro
 
 	return string(respKV.Kvs[0].Value), nil
 }
+
+func (c *EtcdClient) ServiceID(id string) ServiceID {
+	var sid ServiceID
+	sid.Hostname = Hostname()
+
+	if id != "" {
+		var err error
+		sid.ID, err = strconv.Atoi(id)
+		if err != nil || sid.ID < 0 {
+			sid.ID = 0
+		}
+	}
+
+	if sid.ID > 0 {
+		sid.Service = fmt.Sprintf("%s-%s-%d", sid.Hostname, c.options.serviceName, sid.ID)
+	} else {
+		sid.Service = fmt.Sprintf("%s-%s", sid.Hostname, c.options.serviceName)
+	}
+
+	return sid
+}
