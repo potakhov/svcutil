@@ -9,19 +9,13 @@ type EventType int
 
 const (
 	EventTypeUnknown EventType = iota
-	EventTypeKeepAliveRenewed
-	EventTypeKeepAliveStopped
-	EventTypeUnableToCheckTTL
 	EventTypeLeaseExpired
-	EventTypeKeepAliveRestarted
-	EventTypeUnableToRestartKeepAlive
-	EventTypeUnableToReacquireLease
 	EventTypeLeaseReacquired
-	EventTypeLeaseIsTaken
+	EventTypeLeaseIsTakenOver
 )
 
 type Events interface {
-	OnEvent(EventType, string, error)
+	OnEvent(EventType, string)
 }
 
 type options struct {
@@ -42,7 +36,7 @@ type options struct {
 
 type noOpEvents struct{}
 
-func (e *noOpEvents) OnEvent(_ EventType, _ string, _ error) {
+func (e *noOpEvents) OnEvent(_ EventType, _ string) {
 	// No-op
 }
 

@@ -58,15 +58,12 @@ func (i *Lease) keyPrefix() string {
 }
 
 func (i *Lease) keepAliveWorker(kl <-chan *clientv3.LeaseKeepAliveResponse) {
-	for ev := range kl {
-		if ev == nil {
-			select {
-			case i.breaker <- true:
-			default:
-			}
-			break
-		}
-		i.client.options.events.OnEvent(EventTypeKeepAliveRenewed, i.value, nil)
+	for range kl {
+	}
+
+	select {
+	case i.breaker <- true:
+	default:
 	}
 }
 
@@ -91,7 +88,6 @@ workerloop:
 				i.closer()
 				i.closer = nil
 			}
-			i.client.options.events.OnEvent(EventTypeKeepAliveStopped, i.value, nil)
 		case <-tk.C:
 			if keepAlive {
 				// everything is functioning
@@ -104,27 +100,24 @@ workerloop:
 				resp, err := i.client.etcd.TimeToLive(ctx, i.lease)
 				cancel()
 				if err != nil {
-					i.client.options.events.OnEvent(EventTypeUnableToCheckTTL, i.value, err)
 					continue
 				}
 
 				if resp.TTL <= 0 {
 					// lease is expired
-					i.client.options.events.OnEvent(EventTypeLeaseExpired, i.value, nil)
+					i.client.options.events.OnEvent(EventTypeLeaseExpired, i.value)
 					leaseAlive = false
 				} else {
 					// lease is still alive, re-establish keep-alive
 					keepAliveContext, keepAliveCancel := context.WithCancel(context.Background())
 					kl, err := i.client.etcd.KeepAlive(keepAliveContext, i.lease)
 					if err != nil {
-						i.client.options.events.OnEvent(EventTypeUnableToRestartKeepAlive, i.value, err)
 						keepAliveCancel()
 						continue
 					}
 
 					i.closer = keepAliveCancel
 					keepAlive = true
-					i.client.options.events.OnEvent(EventTypeKeepAliveRestarted, i.value, nil)
 					go i.keepAliveWorker(kl)
 					continue
 				}
@@ -133,13 +126,13 @@ workerloop:
 			if !leaseAlive {
 				switch i.reacquire() {
 				case reacquireSuccess:
-					i.client.options.events.OnEvent(EventTypeLeaseReacquired, i.value, nil)
+					i.client.options.events.OnEvent(EventTypeLeaseReacquired, i.value)
 					leaseAlive = true
 					keepAlive = true
 				case reacquireFailure:
 					continue
 				case reacquireLeaseTaken:
-					i.client.options.events.OnEvent(EventTypeLeaseIsTaken, i.value, nil)
+					i.client.options.events.OnEvent(EventTypeLeaseIsTakenOver, i.value)
 					break workerloop
 				}
 			}
@@ -242,7 +235,6 @@ func (i *Lease) reacquire() reacquireResult {
 	lease := clientv3.NewLease(i.client.etcd)
 	resp, err := lease.Grant(ctx, int64(i.client.options.etcdLeaseTTL))
 	if err != nil {
-		i.client.options.events.OnEvent(EventTypeUnableToReacquireLease, i.value, err)
 		return reacquireFailure
 	}
 
@@ -253,7 +245,6 @@ func (i *Lease) reacquire() reacquireResult {
 
 	txnResp, err := txn.Commit()
 	if err != nil {
-		i.client.options.events.OnEvent(EventTypeUnableToReacquireLease, i.value, err)
 		return reacquireFailure
 	}
 
@@ -262,7 +253,6 @@ func (i *Lease) reacquire() reacquireResult {
 		kl, err := i.client.etcd.KeepAlive(keepAliveContext, resp.ID)
 		if err != nil {
 			keepAliveCancel()
-			i.client.options.events.OnEvent(EventTypeUnableToReacquireLease, i.value, err)
 			return reacquireFailure
 		}
 
