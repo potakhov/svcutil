@@ -5,19 +5,6 @@ import (
 	"time"
 )
 
-type EventType int
-
-const (
-	EventTypeUnknown EventType = iota
-	EventTypeLeaseExpired
-	EventTypeLeaseReacquired
-	EventTypeLeaseIsTakenOver
-)
-
-type Events interface {
-	OnServiceEvent(EventType, string)
-}
-
 type options struct {
 	serviceName     string
 	serviceScope    string
@@ -32,13 +19,6 @@ type options struct {
 	username        string
 	password        string
 	retryInterval   time.Duration
-	events          Events
-}
-
-type noOpEvents struct{}
-
-func (e *noOpEvents) OnServiceEvent(_ EventType, _ string) {
-	// No-op
 }
 
 func NewOptions() *options {
@@ -51,7 +31,6 @@ func NewOptions() *options {
 		mutexesPrefix:   "/mutexes/",
 		idsPrefix:       "/ids/",
 		retryInterval:   15 * time.Second,
-		events:          &noOpEvents{},
 	}
 }
 
@@ -141,13 +120,6 @@ func EtcdPassword(p string) func(*options) *options {
 func RetryInterval(t time.Duration) func(*options) *options {
 	return func(l *options) *options {
 		l.retryInterval = t
-		return l
-	}
-}
-
-func OnEvents(e Events) func(*options) *options {
-	return func(l *options) *options {
-		l.events = e
 		return l
 	}
 }

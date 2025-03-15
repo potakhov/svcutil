@@ -18,6 +18,7 @@ type Lease struct {
 	wg      sync.WaitGroup
 	stopper chan struct{}
 	breaker chan bool
+	donec   chan struct{}
 
 	closer   func()
 	lease    clientv3.LeaseID
@@ -41,12 +42,17 @@ func NewLease(r *Range, etcd *Service, appContext context.Context) *Lease {
 		appContext: appContext,
 		stopper:    make(chan struct{}),
 		breaker:    make(chan bool, 1),
+		donec:      make(chan struct{}),
 	}
 }
 
 func (i *Lease) Close() {
 	close(i.stopper)
 	i.wg.Wait()
+}
+
+func (i *Lease) Done() <-chan struct{} {
+	return i.donec
 }
 
 func (i *Lease) keyPrefix() string {
@@ -105,7 +111,6 @@ workerloop:
 
 				if resp.TTL <= 0 {
 					// lease is expired
-					i.client.options.events.OnServiceEvent(EventTypeLeaseExpired, i.value)
 					leaseAlive = false
 				} else {
 					// lease is still alive, re-establish keep-alive
@@ -126,13 +131,11 @@ workerloop:
 			if !leaseAlive {
 				switch i.reacquire() {
 				case reacquireSuccess:
-					i.client.options.events.OnServiceEvent(EventTypeLeaseReacquired, i.value)
 					leaseAlive = true
 					keepAlive = true
 				case reacquireFailure:
 					continue
 				case reacquireLeaseTaken:
-					i.client.options.events.OnServiceEvent(EventTypeLeaseIsTakenOver, i.value)
 					break workerloop
 				}
 			}
@@ -144,10 +147,14 @@ workerloop:
 		i.closer = nil
 	}
 
+	close(i.donec)
+
 	if leaseAlive {
-		ctx, cancel := context.WithTimeout(i.appContext, i.client.options.etcdDialTimeout)
-		defer cancel()
-		i.client.etcd.Revoke(ctx, i.lease)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), i.client.options.etcdDialTimeout)
+			defer cancel()
+			i.client.etcd.Revoke(ctx, i.lease)
+		}()
 	}
 }
 

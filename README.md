@@ -71,6 +71,7 @@ defer lease.Close()
 - `Obtain(ctx)`: Obtains an exclusive lease for an ID/IP from the range
 - `Wait(ctx)`: Waits for a lease to become available and obtains it
 - `Close()`: Releases the lease and stops renewal
+- `Done()`: Returns the channel that gets closed in case if lease has been lost. Only available if lease was successfully obtained before.
 
 ### Range
 
@@ -134,7 +135,6 @@ svc, err := svcutil.NewService(
 - `LocksPrefix(string)`: Customizes the prefix for lock keys
 - `MutexesPrefix(string)`: Customizes the prefix for mutex keys
 - `HostsPrefix(string)`: Customizes the prefix for host-specific keys
-- `OnEvents(func(EventType, string))`: Sets a callback for service events
 
 ### Environment Variables
 
