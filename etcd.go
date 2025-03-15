@@ -16,7 +16,7 @@ import (
 	"golang.org/x/net/context"
 )
 
-type EtcdClient struct {
+type Service struct {
 	etcd    *clientv3.Client
 	session *concurrency.Session
 	options *options
@@ -33,7 +33,7 @@ var ErrInvalidConfigPointer = errors.New("invalid config pointer")
 var ErrEmptyValue = errors.New("empty value")
 var ErrNoAvailableIDs = errors.New("no available IDs")
 
-func NewEtcdClient(opt ...func(*options) *options) (*EtcdClient, error) {
+func NewService(opt ...func(*options) *options) (*Service, error) {
 	o := NewOptions()
 
 	for _, decorator := range opt {
@@ -60,7 +60,7 @@ func NewEtcdClient(opt ...func(*options) *options) (*EtcdClient, error) {
 		return nil, ErrWrongEtcdAddress
 	}
 
-	cli := &EtcdClient{
+	cli := &Service{
 		options: o,
 		mutexes: make(map[string]*concurrency.Mutex),
 	}
@@ -86,12 +86,12 @@ func NewEtcdClient(opt ...func(*options) *options) (*EtcdClient, error) {
 	return cli, nil
 }
 
-func (c *EtcdClient) Close() {
+func (c *Service) Close() {
 	c.session.Close()
 	c.etcd.Close()
 }
 
-func (c *EtcdClient) AcquireLock(ctx context.Context, name string) error {
+func (c *Service) AcquireLock(ctx context.Context, name string) error {
 	key := fmt.Sprintf("%s%s%s%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
 
 	c.lock.Lock()
@@ -123,7 +123,7 @@ func (c *EtcdClient) AcquireLock(ctx context.Context, name string) error {
 	return nil
 }
 
-func (c *EtcdClient) ReleaseLock(ctx context.Context, name string) error {
+func (c *Service) ReleaseLock(ctx context.Context, name string) error {
 	key := fmt.Sprintf("%s%s%s%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
 
 	c.lock.Lock()
@@ -150,7 +150,7 @@ func (c *EtcdClient) ReleaseLock(ctx context.Context, name string) error {
 	return nil
 }
 
-func (c *EtcdClient) LoadConfig(ctx context.Context, cfg any) error {
+func (c *Service) loadConfig(ctx context.Context, cfg any, path string) error {
 	v := reflect.ValueOf(cfg)
 	if v.Kind() != reflect.Ptr {
 		return ErrInvalidConfigPointer
@@ -168,7 +168,7 @@ func (c *EtcdClient) LoadConfig(ctx context.Context, cfg any) error {
 	cfgValue := v.Elem()
 
 	for fieldName, jsonTag := range tags {
-		key := fmt.Sprintf("%s%s/%s", c.options.configPrefix, c.options.serviceName, jsonTag)
+		key := path + jsonTag
 		resp, err := c.etcd.Get(ctx, key)
 		if err != nil {
 			return err
@@ -201,23 +201,18 @@ func (c *EtcdClient) LoadConfig(ctx context.Context, cfg any) error {
 	return nil
 }
 
-func (c *EtcdClient) GetHostValue(ctx context.Context, key string) (string, error) {
-	idsKey := fmt.Sprintf("%s%s/%s/%s", c.options.hostsPrefix, c.options.serviceName, Hostname(), key)
-
-	respKV, err := c.etcd.Get(ctx, idsKey)
-	if err != nil {
-		return "", err
-	}
-
-	if len(respKV.Kvs) == 0 {
-		return "", ErrEmptyValue
-	}
-
-	return string(respKV.Kvs[0].Value), nil
+func (c *Service) LoadConfig(ctx context.Context, cfg any) error {
+	path := c.options.configPrefix + c.options.serviceName + "/"
+	return c.loadConfig(ctx, cfg, path)
 }
 
-func (c *EtcdClient) ServiceID(id string) ServiceID {
-	var sid ServiceID
+func (c *Service) LoadHostConfig(ctx context.Context, cfg any) error {
+	path := c.options.hostsPrefix + c.options.serviceName + "/" + Hostname() + "/"
+	return c.loadConfig(ctx, cfg, path)
+}
+
+func (c *Service) ID(id string) ID {
+	var sid ID
 	sid.Hostname = Hostname()
 
 	if id != "" {

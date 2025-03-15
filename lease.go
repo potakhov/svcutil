@@ -11,7 +11,7 @@ import (
 )
 
 type Lease struct {
-	client     *EtcdClient
+	client     *Service
 	r          *Range
 	appContext context.Context
 
@@ -34,7 +34,7 @@ const (
 	reacquireLeaseTaken
 )
 
-func NewLease(r *Range, etcd *EtcdClient, appContext context.Context) *Lease {
+func NewLease(r *Range, etcd *Service, appContext context.Context) *Lease {
 	return &Lease{
 		client:     etcd,
 		r:          r,
@@ -72,7 +72,7 @@ func (i *Lease) worker() {
 
 	leaseAlive := true
 	keepAlive := true
-	tk := time.NewTicker(time.Duration(i.client.options.etcdLeaseTTL) * time.Second / 2)
+	tk := time.NewTicker(i.client.options.retryInterval)
 workerloop:
 	for {
 		select {
@@ -105,7 +105,7 @@ workerloop:
 
 				if resp.TTL <= 0 {
 					// lease is expired
-					i.client.options.events.OnEvent(EventTypeLeaseExpired, i.value)
+					i.client.options.events.OnServiceEvent(EventTypeLeaseExpired, i.value)
 					leaseAlive = false
 				} else {
 					// lease is still alive, re-establish keep-alive
@@ -126,13 +126,13 @@ workerloop:
 			if !leaseAlive {
 				switch i.reacquire() {
 				case reacquireSuccess:
-					i.client.options.events.OnEvent(EventTypeLeaseReacquired, i.value)
+					i.client.options.events.OnServiceEvent(EventTypeLeaseReacquired, i.value)
 					leaseAlive = true
 					keepAlive = true
 				case reacquireFailure:
 					continue
 				case reacquireLeaseTaken:
-					i.client.options.events.OnEvent(EventTypeLeaseIsTakenOver, i.value)
+					i.client.options.events.OnServiceEvent(EventTypeLeaseIsTakenOver, i.value)
 					break workerloop
 				}
 			}

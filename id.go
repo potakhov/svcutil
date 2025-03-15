@@ -1,15 +1,15 @@
 package svcutil
 
-type ServiceID struct {
+type ID struct {
 	Hostname string
 	Service  string
 	ID       int
 }
 
-func (sid ServiceID) String() string {
+func (sid ID) String() string {
 	return sid.Service
 }
 
-func (sid ServiceID) Int() int {
+func (sid ID) Int() int {
 	return sid.ID
 }

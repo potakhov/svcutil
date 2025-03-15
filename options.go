@@ -15,7 +15,7 @@ const (
 )
 
 type Events interface {
-	OnEvent(EventType, string)
+	OnServiceEvent(EventType, string)
 }
 
 type options struct {
@@ -36,7 +36,7 @@ type options struct {
 
 type noOpEvents struct{}
 
-func (e *noOpEvents) OnEvent(_ EventType, _ string) {
+func (e *noOpEvents) OnServiceEvent(_ EventType, _ string) {
 	// No-op
 }
 
@@ -49,12 +49,12 @@ func NewOptions() *options {
 		hostsPrefix:     "/hosts/",
 		mutexesPrefix:   "/mutexes/",
 		idsPrefix:       "/ids/",
-		retryInterval:   30 * time.Second,
+		retryInterval:   15 * time.Second,
 		events:          &noOpEvents{},
 	}
 }
 
-func Service(s string) func(*options) *options {
+func Name(s string) func(*options) *options {
 	return func(l *options) *options {
 		l.serviceName = s
 		return l
@@ -109,21 +109,21 @@ func IDsPrefix(p string) func(*options) *options {
 	}
 }
 
-func Endpoints(e string) func(*options) *options {
+func EtcdEndpoints(e string) func(*options) *options {
 	return func(l *options) *options {
 		l.endpoints = strings.Split(e, ",")
 		return l
 	}
 }
 
-func Username(u string) func(*options) *options {
+func EtcdUsername(u string) func(*options) *options {
 	return func(l *options) *options {
 		l.username = u
 		return l
 	}
 }
 
-func Password(p string) func(*options) *options {
+func EtcdPassword(p string) func(*options) *options {
 	return func(l *options) *options {
 		l.password = p
 		return l
