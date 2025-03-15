@@ -37,11 +37,9 @@ svc, err := svcutil.NewService(
 
 - `NewService(options...)`: Creates a new Service instance with the provided options
 - `Close()`: Gracefully shuts down the Service
-- `AcquireLock(ctx, name)`: Acquires a named distributed lock
+- `AcquireLock(ctx, name)`: Acquires a named distributed lock. Locks are not guaranteed to survive if connection to etcd has been lost, use leases instead.
 - `ReleaseLock(ctx, name)`: Releases a previously acquired lock
-- `LoadConfig(ctx, cfg)`: Loads service configuration from etcd
-- `LoadScopeConfig(ctx, cfg)`: Loads scope-specific configuration from etcd
-- `LoadHostConfig(ctx, cfg)`: Loads host-specific configuration from etcd
+- `LoadConfig(ctx, configurationType, cfg)`: Loads configuration from etcd
 - `ID(id)`: Creates an ID structure that identifies this service instance
 
 ### Lease

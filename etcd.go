@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	clientv3 "go.etcd.io/etcd/client/v3"
 	concurrency "go.etcd.io/etcd/client/v3/concurrency"
@@ -23,7 +24,17 @@ type Service struct {
 
 	mutexes map[string]*concurrency.Mutex
 	lock    sync.Mutex
+	stopper chan struct{}
+	wg      sync.WaitGroup
 }
+
+type ConfigurationType int
+
+const (
+	ConfigurationTypeService ConfigurationType = iota
+	ConfigurationTypeScope
+	ConfigurationTypeHost
+)
 
 var ErrServiceNameNotSpecified = errors.New("service name is not specified")
 var ErrWrongEtcdAddress = errors.New("wrong etcd address")
@@ -32,6 +43,7 @@ var ErrEtcdTimeout = errors.New("etcd timeout")
 var ErrInvalidConfigPointer = errors.New("invalid config pointer")
 var ErrEmptyValue = errors.New("empty value")
 var ErrNoAvailableIDs = errors.New("no available IDs")
+var ErrSessionNotAvailable = errors.New("session not available")
 
 func NewService(opt ...func(*options) *options) (*Service, error) {
 	o := NewOptions()
@@ -63,6 +75,7 @@ func NewService(opt ...func(*options) *options) (*Service, error) {
 	cli := &Service{
 		options: o,
 		mutexes: make(map[string]*concurrency.Mutex),
+		stopper: make(chan struct{}),
 	}
 
 	var err error
@@ -78,23 +91,87 @@ func NewService(opt ...func(*options) *options) (*Service, error) {
 		return nil, err
 	}
 
-	cli.session, err = concurrency.NewSession(cli.etcd, concurrency.WithTTL(o.etcdLeaseTTL))
+	err = cli.createSession()
 	if err != nil {
+		cli.etcd.Close()
 		return nil, err
 	}
+
+	cli.wg.Add(1)
+	go cli.monitorSession()
 
 	return cli, nil
 }
 
 func (c *Service) Close() {
-	c.session.Close()
+	close(c.stopper)
+	c.wg.Wait()
+
+	if c.session != nil {
+		c.session.Close()
+	}
+
 	c.etcd.Close()
+}
+
+func (c *Service) createSession() error {
+	session, err := concurrency.NewSession(c.etcd, concurrency.WithTTL(c.options.etcdLeaseTTL))
+	if err != nil {
+		return err
+	}
+
+	c.lock.Lock()
+	c.session = session
+	c.lock.Unlock()
+
+	return nil
+}
+
+func (c *Service) monitorSession() {
+	defer c.wg.Done()
+
+	ch := c.session.Done()
+
+	for {
+		select {
+		case <-c.stopper:
+			return
+		case <-ch:
+			c.lock.Lock()
+			c.mutexes = make(map[string]*concurrency.Mutex)
+			if c.session != nil {
+				go c.session.Close()
+				c.session = nil
+			}
+			c.lock.Unlock()
+
+			for {
+				err := c.createSession()
+				if err == nil {
+					break
+				}
+
+				select {
+				case <-c.stopper:
+					return
+				case <-time.After(c.options.retryInterval):
+				}
+			}
+
+			ch = c.session.Done()
+		}
+	}
 }
 
 func (c *Service) AcquireLock(ctx context.Context, name string) error {
 	key := fmt.Sprintf("%s%s%s%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
 
 	c.lock.Lock()
+	if c.session == nil {
+		c.lock.Unlock()
+		return ErrSessionNotAvailable
+	}
+
 	_, ok := c.mutexes[key]
 	if ok {
 		c.lock.Unlock()
@@ -201,23 +278,22 @@ func (c *Service) loadConfig(ctx context.Context, cfg any, path string) error {
 	return nil
 }
 
-func (c *Service) LoadConfig(ctx context.Context, cfg any) error {
-	path := c.options.configPrefix + c.options.serviceName + "/"
-	return c.loadConfig(ctx, cfg, path)
-}
-
-func (c *Service) LoadScopeConfig(ctx context.Context, cfg any) error {
+func (c *Service) LoadConfig(ctx context.Context, ct ConfigurationType, cfg any) error {
 	var path string
-	if c.options.serviceScope != "" {
-		path = c.options.configPrefix + c.options.serviceScope + "/"
-	} else {
-		path = c.options.configPrefix + c.options.serviceName + "/"
-	}
-	return c.loadConfig(ctx, cfg, path)
-}
 
-func (c *Service) LoadHostConfig(ctx context.Context, cfg any) error {
-	path := c.options.hostsPrefix + c.options.serviceName + "/" + Hostname() + "/"
+	switch ct {
+	case ConfigurationTypeService:
+		path = c.options.configPrefix + c.options.serviceName + "/"
+	case ConfigurationTypeScope:
+		if c.options.serviceScope != "" {
+			path = c.options.configPrefix + c.options.serviceScope + "/"
+		} else {
+			path = c.options.configPrefix + c.options.serviceName + "/"
+		}
+	case ConfigurationTypeHost:
+		path = c.options.hostsPrefix + c.options.serviceName + "/" + Hostname() + "/"
+	}
+
 	return c.loadConfig(ctx, cfg, path)
 }
 
