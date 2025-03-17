@@ -298,22 +298,13 @@ func (c *Service) LoadConfig(ctx context.Context, ct ConfigurationType, cfg any)
 }
 
 func (c *Service) ID(id string) ID {
-	var sid ID
-	sid.Hostname = Hostname()
+	var err error
+	var idval int
 
-	if id != "" {
-		var err error
-		sid.ID, err = strconv.Atoi(id)
-		if err != nil || sid.ID < 0 {
-			sid.ID = 0
-		}
+	idval, err = strconv.Atoi(id)
+	if err != nil || idval < 0 {
+		idval = 0
 	}
 
-	if sid.ID > 0 {
-		sid.Service = fmt.Sprintf("%s-%s-%d", sid.Hostname, c.options.serviceName, sid.ID)
-	} else {
-		sid.Service = fmt.Sprintf("%s-%s", sid.Hostname, c.options.serviceName)
-	}
-
-	return sid
+	return NewID(idval, c.options.serviceName)
 }
