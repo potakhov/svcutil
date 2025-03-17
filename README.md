@@ -1,6 +1,6 @@
 # Service utilities
 
-Various utils for building services with etcd
+Various utilities for building services with etcd
 
 ## Overview
 
@@ -10,6 +10,7 @@ The `svcutil` package provides utilities for building distributed services using
 - Distributed locking and coordination
 - Lease management for resource allocation
 - IP and ID range handling
+- Random/Unique cookie generation
 
 ## Core Components
 
@@ -148,6 +149,59 @@ If options are not explicitly provided, the service will attempt to read these e
 
 Host name could be obtained using `svcutil.Hostname()` function. It is used in service ID generation and in various etcd keys formation.
 
+## CookieGen
+
+The CookieGen class provides utilities for generating unique, random identifiers ("cookies") with various sources of randomness.
+
+```go
+// Create a cookie generator with cryptographically secure random source
+cookieGen := svcutil.NewCookieGen(svcutil.CookieSourceCryptoRand, 0)
+
+// Generate a random string cookie
+cookie := cookieGen.Cookie()
+
+// Generate a random integer
+randomInt := cookieGen.Int63()
+```
+
+### Key Features
+
+- Multiple Random Sources: Use different sources of randomness based on your security needs
+- String Cookies: Generate random strings of configurable length
+- Integer Values: Generate random 63-bit integers
+- Snowflake Support: Generate time-ordered unique IDs using the Snowflake algorithm
+- Thread Safety: All cookie generation methods are thread-safe
+
+### Cookie Source Types
+
+- CookieSourceCryptoRand: Uses cryptographically secure random number generation (recommended for security-sensitive applications)
+- CookieSourcePseudoRand: Uses Go's pseudo-random number generator (faster but less secure)
+- CookieSourceCustomSnowflake: Uses the Snowflake algorithm to generate time-based unique IDs
+- CookieSourceIncremented: Uses a simple incrementing counter (deterministic, useful for testing)
+
+### Methods
+
+- `NewCookieGen(source, nodeID)`: Creates a new cookie generator with the specified random source
+- `NewSnowflakeCookieGen(epoch, nodeID)`: Creates a cookie generator using Snowflake algorithm with custom epoch
+- `Cookie()`: Generates a random string of letters
+- `Int63()`: Generates a random 63-bit integer
+- `CookieSource()`: Returns the current source type used for generation
+
+### Examples
+
+```go
+// Create a cryptographically secure cookie generator
+secureGen := svcutil.NewCookieGen(svcutil.CookieSourceCryptoRand, 0)
+secureToken := secureGen.Cookie() // e.g., "aB7pQrXzTlMnYbGh3sV9wDcE2fRgH8jK"
+
+// Create a Snowflake-based cookie generator
+// Using custom epoch (e.g., Jan 1, 2020 00:00:00 UTC in milliseconds)
+epoch := int64(1577836800000)
+nodeID := int64(1) // Unique node identifier
+snowflakeGen := svcutil.NewSnowflakeCookieGen(epoch, nodeID)
+uniqueID := snowflakeGen.Int63() // Time-ordered unique ID
+```
+
 ## Usage Examples
 
 ### Configuring a Service
@@ -218,18 +272,6 @@ if err != nil {
 
 fmt.Printf("Obtained ID: %s\n", id)
 defer lease.Close()
-```
-
-### Resource Management
-
-Always close resources when you're done with them:
-
-```go
-// Lease cleanup
-defer lease.Close()
-
-// Service cleanup
-defer svc.Close()
 ```
 
 ## etcd keys
