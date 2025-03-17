@@ -22,7 +22,7 @@ type Service struct {
 	session *concurrency.Session
 	options *options
 
-	mutexes map[string]*concurrency.Mutex
+	mutexes map[string]*muRecord
 	lock    sync.Mutex
 	stopper chan struct{}
 	wg      sync.WaitGroup
@@ -44,6 +44,11 @@ var ErrInvalidConfigPointer = errors.New("invalid config pointer")
 var ErrEmptyValue = errors.New("empty value")
 var ErrNoAvailableIDs = errors.New("no available IDs")
 var ErrSessionNotAvailable = errors.New("session not available")
+
+type muRecord struct {
+	mu    *concurrency.Mutex
+	donec chan struct{}
+}
 
 func NewService(opt ...func(*options) *options) (*Service, error) {
 	o := NewOptions()
@@ -74,7 +79,7 @@ func NewService(opt ...func(*options) *options) (*Service, error) {
 
 	cli := &Service{
 		options: o,
-		mutexes: make(map[string]*concurrency.Mutex),
+		mutexes: make(map[string]*muRecord),
 		stopper: make(chan struct{}),
 	}
 
@@ -138,12 +143,18 @@ func (c *Service) monitorSession() {
 			return
 		case <-ch:
 			c.lock.Lock()
-			c.mutexes = make(map[string]*concurrency.Mutex)
+			oldMutexes := c.mutexes
+			c.mutexes = make(map[string]*muRecord)
 			if c.session != nil {
 				go c.session.Close()
 				c.session = nil
 			}
 			c.lock.Unlock()
+
+			for _, mrec := range oldMutexes {
+				// in case if session is lost we kill all mutexes and notify all waiters
+				close(mrec.donec)
+			}
 
 			for {
 				err := c.createSession()
@@ -163,19 +174,19 @@ func (c *Service) monitorSession() {
 	}
 }
 
-func (c *Service) AcquireLock(ctx context.Context, name string) error {
+func (c *Service) AcquireLock(ctx context.Context, name string) (<-chan struct{}, error) {
 	key := fmt.Sprintf("%s%s%s%s", c.options.locksPrefix, c.options.serviceName, c.options.mutexesPrefix, name)
 
 	c.lock.Lock()
 	if c.session == nil {
 		c.lock.Unlock()
-		return ErrSessionNotAvailable
+		return nil, ErrSessionNotAvailable
 	}
 
 	_, ok := c.mutexes[key]
 	if ok {
 		c.lock.Unlock()
-		return ErrMutexAlreadyAcquired
+		return nil, ErrMutexAlreadyAcquired
 	}
 	c.lock.Unlock()
 
@@ -183,21 +194,26 @@ func (c *Service) AcquireLock(ctx context.Context, name string) error {
 	err := mutex.TryLock(ctx)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return ErrEtcdTimeout
+			return nil, ErrEtcdTimeout
 		}
 
 		if err == concurrency.ErrLocked {
-			return ErrMutexAlreadyAcquired
+			return nil, ErrMutexAlreadyAcquired
 		}
 
-		return err
+		return nil, err
+	}
+
+	mrec := &muRecord{
+		mu:    mutex,
+		donec: make(chan struct{}),
 	}
 
 	c.lock.Lock()
-	c.mutexes[key] = mutex
+	c.mutexes[key] = mrec
 	c.lock.Unlock()
 
-	return nil
+	return mrec.donec, nil
 }
 
 func (c *Service) ReleaseLock(ctx context.Context, name string) error {
@@ -211,7 +227,7 @@ func (c *Service) ReleaseLock(ctx context.Context, name string) error {
 	}
 	c.lock.Unlock()
 
-	err := mutex.Unlock(ctx)
+	err := mutex.mu.Unlock(ctx)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
 			return ErrEtcdTimeout
@@ -221,7 +237,11 @@ func (c *Service) ReleaseLock(ctx context.Context, name string) error {
 	}
 
 	c.lock.Lock()
-	delete(c.mutexes, key)
+	mutex, ok = c.mutexes[key]
+	if ok {
+		close(mutex.donec)
+		delete(c.mutexes, key)
+	}
 	c.lock.Unlock()
 
 	return nil
