@@ -282,21 +282,21 @@ Service configuration:
 
 ```
 config prefix + service name / value name
-/configs/<service>/<value>
+/config/<service>/<value>
 ```
 
 Scope configuration:
 
 ```
 config prefix + service scope / value name
-/configs/<scope>/<value>
+/config/<scope>/<value>
 ```
 
 Host configuration:
 
 ```
 hosts prefix + service name / host / value name
-/hosts/<service>/<host>/<value>
+/host/<service>/<host>/<value>
 ```
 
 ### Locks
@@ -305,20 +305,19 @@ Distributed mutexes:
 
 ```
 locks prefix + service name + mutexes prefix / name
-/locks/<service>/mutexes/<name>
+/lock/<service>/mutex/<name>
 ```
 
 ID range leases:
 
 ```
 locks prefix + service name + ids prefix / name
-/locks/<service>/ids/<name>
+/lock/<service>/id/<name>
 ```
 
 IP range leases
 
 ```
 locks prefix + service name + hosts prefix / host / name
-/locks/<service>/hosts/<host>/<name>
+/lock/<service>/host/<host>/<name>
 ```
-

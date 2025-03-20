@@ -25,11 +25,11 @@ func NewOptions() *options {
 	return &options{
 		etcdDialTimeout: 5 * time.Second,
 		etcdLeaseTTL:    30,
-		locksPrefix:     "/locks/",
-		configPrefix:    "/configs/",
-		hostsPrefix:     "/hosts/",
-		mutexesPrefix:   "/mutexes/",
-		idsPrefix:       "/ids/",
+		locksPrefix:     "/lock/",
+		configPrefix:    "/config/",
+		hostsPrefix:     "/host/",
+		mutexesPrefix:   "/mutex/",
+		idsPrefix:       "/id/",
 		retryInterval:   15 * time.Second,
 	}
 }
