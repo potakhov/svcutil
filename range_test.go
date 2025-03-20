@@ -102,6 +102,12 @@ func TestParseIDRange(t *testing.T) {
 			wantErr:  false,
 		},
 		{
+			name:     "single value range",
+			input:    "1",
+			expected: []int{1},
+			wantErr:  false,
+		},
+		{
 			name:     "comma separated",
 			input:    "1,3,5",
 			expected: []int{1, 3, 5},
@@ -180,6 +186,17 @@ func TestNewIPRange(t *testing.T) {
 				Values: []string{
 					"192.168.1.1", "192.168.1.2", "192.168.1.3",
 					"192.168.1.4", "192.168.1.5",
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name:  "single IP range",
+			input: "192.168.1.3",
+			expected: &Range{
+				Type: RangeTypeIP,
+				Values: []string{
+					"192.168.1.3",
 				},
 			},
 			wantErr: false,
